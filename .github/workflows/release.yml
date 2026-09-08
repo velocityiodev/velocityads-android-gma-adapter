@@ -14,8 +14,6 @@ env:
   AAR_PATH: velocity-gma-adapter/build/outputs/aar/velocity-gma-adapter-release.aar
   # CHANGELOG heading to extract notes from (matches the format used by the CHANGELOG convention)
   CHANGELOG_PATH: CHANGELOG.md
-  # git tag format — full 4-segment version, e.g. 0.10.0.0
-  TAG_PREFIX: ""
 
 on:
   workflow_dispatch:

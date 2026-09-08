@@ -16,10 +16,8 @@ import io.velocityads.sdk.models.VelocityBannerAd
 import io.velocityads.sdk.models.VelocityBannerAdSize
 import java.time.Duration
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
-import kotlin.test.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,7 +25,6 @@ import org.mockito.ArgumentCaptor
 import org.mockito.Mockito.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
-import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.robolectric.Robolectric
@@ -151,57 +148,17 @@ class VelocityGmaBannerAdTest {
         verify(velocityAd).destroy()
     }
 
-    // ========== teardown ==========
-
-    private fun attachToWindow() {
+    @Test
+    fun `a loaded banner that leaves the window is not released`() {
+        // The Google Mobile Ads SDK gives banners no teardown hook, and detaching is a normal
+        // event (list recycling, reparenting) — releasing on detach would leave a re-attached
+        // banner blank. The creative is left to the SDK's own pause-on-detach and to GC.
         activity.setContentView(FrameLayout(activity).apply { addView(adView) })
-        assertTrue(adView.isAttachedToWindow)
-    }
+        loadAndCaptureListener().onAdLoaded(velocityAd)
 
-    private fun detachFromWindow() {
         (adView.parent as ViewGroup).removeView(adView)
-        assertFalse(adView.isAttachedToWindow)
-    }
-
-    private fun advanceMainLooper(ms: Long) {
-        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
-    }
-
-    @Test
-    fun `a loaded banner that leaves the window is released after the grace period`() {
-        attachToWindow()
-        loadAndCaptureListener().onAdLoaded(velocityAd)
-
-        detachFromWindow()
-        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS - 1)
-        verify(velocityAd, never()).destroy()
-
-        advanceMainLooper(1)
-        verify(velocityAd).destroy()
-    }
-
-    @Test
-    fun `a banner re-attached within the grace period is kept alive`() {
-        attachToWindow()
-        loadAndCaptureListener().onAdLoaded(velocityAd)
-
-        detachFromWindow()
-        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS / 2)
-        attachToWindow()
-        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(60))
 
         verify(velocityAd, never()).destroy()
-    }
-
-    @Test
-    fun `the creative is released at most once`() {
-        attachToWindow()
-        val listener = loadAndCaptureListener()
-
-        listener.onAdFailedToLoad(velocityAd, VelocityAdsError(VelocityAdsErrorCode.NO_FILL, "no fill"))
-        detachFromWindow()
-        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS)
-
-        verify(velocityAd, times(1)).destroy()
     }
 }

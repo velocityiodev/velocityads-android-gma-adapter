@@ -360,6 +360,21 @@ class VelocityAdsGmaAdapterTest {
         assertEquals(listOf(true), ready)
     }
 
+    @Test
+    fun `a mismatched load-time appKey is ignored in favour of the first key seen`() {
+        val capturedAppKeys = mutableListOf<String>()
+        VelocityAdsGmaAdapter.initSdkRunner = { _, request, listener ->
+            capturedAppKeys += request.appKey
+            initListeners += listener
+        }
+        adapter.initialize(context, mock(InitializationCompleteCallback::class.java), listOf(initConfiguration(WITH_APP_KEY)))
+        initListeners.single().onInitFailure(VelocityAdsError(VelocityAdsErrorCode.NETWORK_ERROR, "offline"))
+
+        adapter.ensureInitialized(context, VelocityAdsServerParameters(appKey = "app-other", adUnitId = "unit-1")) { }
+
+        assertEquals(listOf("app-1", "app-1"), capturedAppKeys)
+    }
+
     // ========== firstAppKey ==========
 
     @Test

@@ -49,13 +49,14 @@ class VelocityAdsGmaAdapter : Adapter() {
         private val initCoalescer = InitCoalescer<Boolean>()
 
         /**
-         * The app key captured from the first successful sighting, used as a fallback for
-         * load-time init attempts whose parameter carries only an ad unit ID. First-wins:
-         * Velocity init is process-global, so later mismatched keys are logged and ignored.
+         * The app key captured from the first sighting, used as a fallback for load-time init
+         * attempts whose parameter carries only an ad unit ID. First-wins: Velocity init is
+         * process-global, so later mismatched keys are logged and ignored. Main-thread-confined
+         * like [initCoalescer].
          */
-        @Volatile private var storedAppKey: String? = null
+        private var storedAppKey: String? = null
 
-        private val appKeyMismatchLogged = AtomicBoolean(false)
+        private var appKeyMismatchLogged = false
 
         private val mediationInfoForwarded = AtomicBoolean(false)
 
@@ -76,24 +77,30 @@ class VelocityAdsGmaAdapter : Adapter() {
         internal fun resetForTesting() {
             if (initCoalescer.isClaimed) initCoalescer.complete(false)
             storedAppKey = null
-            appKeyMismatchLogged.set(false)
+            appKeyMismatchLogged = false
             initSdkRunner = VelocityAds::initSDK
             isSdkInitialized = VelocityAds::isInitialized
         }
 
-        private fun rememberAppKey(appKey: String) {
+        /**
+         * Records [appKey] and returns the key every init attempt must use: the first key ever
+         * seen. A later, different key is logged once and ignored.
+         */
+        private fun rememberAppKey(appKey: String): String {
             val previous = storedAppKey
             if (previous == null) {
                 storedAppKey = appKey
-                return
+                return appKey
             }
-            if (previous != appKey && appKeyMismatchLogged.compareAndSet(false, true)) {
+            if (previous != appKey && !appKeyMismatchLogged) {
+                appKeyMismatchLogged = true
                 Log.w(
                     TAG,
                     "Velocity Ads: multiple appKey values detected across custom event parameters. " +
                         "Use one Velocity app key per application process.",
                 )
             }
+            return previous
         }
 
         /** Reports the mediation environment to the Velocity SDK. Idempotent; safe from any entry point. */
@@ -145,8 +152,8 @@ class VelocityAdsGmaAdapter : Adapter() {
             return
         }
 
-        val appKey = firstAppKey(configurations)
-        if (appKey.isNullOrBlank()) {
+        val configuredAppKey = firstAppKey(configurations)
+        if (configuredAppKey.isNullOrBlank()) {
             // No mapping carries an appKey: either the host app initializes the Velocity SDK
             // itself, or the key arrives at load time. Report success so the Google Mobile
             // Ads SDK's own initialization is never blocked; ensureInitialized() performs the
@@ -155,9 +162,8 @@ class VelocityAdsGmaAdapter : Adapter() {
             return
         }
 
-        rememberAppKey(appKey)
-
         runOnMainNow {
+            val appKey = rememberAppKey(configuredAppKey)
             if (isSdkInitialized()) {
                 callback.onInitializationSucceeded()
                 return@runOnMainNow
@@ -241,19 +247,14 @@ class VelocityAdsGmaAdapter : Adapter() {
             return
         }
 
-        val loadAppKey = parameters.appKey
-        if (!loadAppKey.isNullOrBlank()) {
-            rememberAppKey(loadAppKey)
-        }
-        val appKey = loadAppKey ?: storedAppKey
-        if (appKey.isNullOrBlank()) {
-            onReady(false)
-            return
-        }
-
         runOnMainNow {
             if (isSdkInitialized()) {
                 onReady(true)
+                return@runOnMainNow
+            }
+            val appKey = parameters.appKey?.let(::rememberAppKey) ?: storedAppKey
+            if (appKey.isNullOrBlank()) {
+                onReady(false)
                 return@runOnMainNow
             }
             val won = initCoalescer.claim(onReady)
