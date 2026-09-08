@@ -1,0 +1,63 @@
+# top-most .editorconfig file
+# Mirrors the Android SDK's .editorconfig so both repos enforce the same ktlint rule set.
+root = true
+
+# Global Settings: Apply to all file types in the project
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+# Kotlin-Specific Settings: Tailored for .kt and .kts files
+[*.{kt,kts}]
+indent_size = 4
+indent_style = space
+
+# Max line length (Android Kotlin Style Guide: 140)
+max_line_length = 140
+ktlint_standard_max_line_length = 140
+
+# Trailing Commas: allow in declarations and call sites
+ij_kotlin_allow_trailing_comma = true
+ij_kotlin_allow_trailing_comma_on_call_site = true
+
+# Import Order: Android/AndroidX first, then common, then Java/Kotlin built-ins
+ij_kotlin_imports_layout = *,android.,androidx.,com.,org.,java.,kotlin.,^
+
+# Blank Lines
+ij_kotlin_blank_lines_around_declarations_in_class_body = 1
+ij_kotlin_blank_lines_before_package = 0
+ij_kotlin_blank_lines_after_package = 1
+ij_kotlin_blank_lines_before_imports = 1
+ij_kotlin_blank_lines_after_imports = 1
+
+# KtLint Rules Configuration
+
+# Allow wildcard imports (common in Android, e.g., 'import android.view.*')
+ktlint_standard_no-wildcard-imports = disabled
+
+# Ensure a final newline at the end of the file
+ktlint_standard_final-newline = enabled
+
+# Enforce filename matches top-level class/object/interface name
+ktlint_standard_filename = enabled
+
+# Allow @Composable functions to use PascalCase (standard Compose convention)
+ktlint_function_naming_ignore_when_annotated_with = Composable
+
+# Keep short lambdas/if-expressions on one line (only breaks at max_line_length)
+ktlint_standard_multiline-expression-wrapping = disabled
+
+# Disable string-template-indent (related to multiline-expression-wrapping)
+ktlint_standard_string-template-indent = disabled
+
+# Disable forcing expression body syntax (conflicts with long-line constraints)
+ktlint_standard_function-expression-body = disabled
+
+# Allow inline end-of-line comments inside argument lists (e.g. color value annotations)
+ktlint_standard_comment-wrapping = disabled
+
+# Exclusions: generated code and build output
+[**/build/**/*.kt]
+ktlint = disabled

@@ -1,0 +1,39 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.3'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.21'
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Plugins applied at the root level (affect all subprojects)
+// ----------------------------------------------------------------------------
+plugins {
+    id 'io.github.gradle-nexus.publish-plugin' version '2.0.0' apply true
+    id 'org.jlleitschuh.gradle.ktlint' version '12.1.1' apply false
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+
+// ----------------------------------------------------------------------------
+// Maven Central Publishing Configuration
+// ----------------------------------------------------------------------------
+// Configures publishing to Maven Central via Central Portal (replaces OSSRH).
+// The nexus-publish plugin must be applied at root level, not in subprojects.
+nexusPublishing {
+    repositories {
+        sonatype {
+            nexusUrl.set(uri("https://ossrh-staging-api.central.sonatype.com/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://central.sonatype.com/repository/maven-snapshots/"))
+            packageGroup.set("io.velocity")
+            username.set(System.getenv("CENTRAL_PORTAL_TOKEN_USER") ?: project.findProperty("centralPortalTokenUser"))
+            password.set(System.getenv("CENTRAL_PORTAL_TOKEN_PASSWORD") ?: project.findProperty("centralPortalTokenPassword"))
+        }
+    }
+}

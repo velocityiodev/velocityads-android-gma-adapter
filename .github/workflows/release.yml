@@ -1,0 +1,400 @@
+name: Release – Publish to Maven Central
+
+# ── Mediation-specific values ──────────────────────────────────────────────
+# When adding a new mediation adapter repo, copy this file and update only
+# the env block below. All other steps are mediation-agnostic.
+env:
+  ADAPTER_MODULE: velocity-gma-adapter
+  # Maven coordinates — must match gradle.properties
+  MAVEN_GROUP: io.velocity
+  MAVEN_ARTIFACT: gma-mediation
+  # Human-readable name used in release notes / GitHub Release title
+  ADAPTER_DISPLAY_NAME: Velocity Ads GMA Adapter
+  # Android class.aar path produced by assembleRelease
+  AAR_PATH: velocity-gma-adapter/build/outputs/aar/velocity-gma-adapter-release.aar
+  # CHANGELOG heading to extract notes from (matches the format used by the CHANGELOG convention)
+  CHANGELOG_PATH: CHANGELOG.md
+  # git tag format — full 4-segment version, e.g. 0.10.0.0
+  TAG_PREFIX: ""
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Adapter version to release — 4 segments, e.g. 0.10.0.0 (must match VERSION_NAME in gradle.properties and top CHANGELOG.md heading)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Dry run: upload to staging only, do not release to Maven Central or create tag'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Job 1: Validate
+  # Checks that the dispatch version matches gradle.properties and CHANGELOG.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: Validate release readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Pin to the dispatch commit so a later push to the release branch
+          # cannot change what gets built, published, or tagged after approval.
+          ref: ${{ github.sha }}
+
+      - name: Validate version format (4-segment semver)
+        run: |
+          set -euo pipefail
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "❌ Invalid version format: '$VERSION'"
+            echo "   Expected 4-segment semver, e.g. 0.10.0.0"
+            exit 1
+          fi
+          echo "✅ Version format valid: $VERSION"
+
+      - name: Enforce release branch
+        run: |
+          set -euo pipefail
+          EXPECTED_BRANCH="release/${VERSION}"
+          if [ "${GITHUB_REF_NAME}" != "$EXPECTED_BRANCH" ]; then
+            echo "❌ Releases must be dispatched from branch '$EXPECTED_BRANCH'"
+            echo "   Got: '${GITHUB_REF_NAME}'"
+            exit 1
+          fi
+          echo "✅ Dispatch branch: $EXPECTED_BRANCH"
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+
+      - name: Check gradle.properties VERSION_NAME
+        run: |
+          set -euo pipefail
+          PROPS_VERSION=$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)
+          if [ "$PROPS_VERSION" != "$VERSION" ]; then
+            echo "❌ gradle.properties VERSION_NAME mismatch"
+            echo "   Expected : $VERSION"
+            echo "   Found    : $PROPS_VERSION"
+            exit 1
+          fi
+          echo "✅ gradle.properties VERSION_NAME: $PROPS_VERSION"
+
+      - name: Check CHANGELOG.md top entry
+        run: |
+          set -euo pipefail
+          # Keep a Changelog: "## [0.10.0.0] - 2026-09-07"
+          TOP_ENTRY=$(grep -m1 '^## \[' "$CHANGELOG_PATH" | sed -E 's/^## \[([^]]+)\].*/\1/')
+          if [ "$TOP_ENTRY" != "$VERSION" ]; then
+            echo "❌ CHANGELOG.md top entry mismatch"
+            echo "   Expected : $VERSION"
+            echo "   Found    : $TOP_ENTRY"
+            exit 1
+          fi
+          echo "✅ CHANGELOG.md top entry: $TOP_ENTRY"
+
+      - name: Duplicate tag guard
+        run: |
+          set -euo pipefail
+          if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}$"; then
+            echo "❌ Tag $VERSION already exists on origin. Did you forget to bump the version?"
+            exit 1
+          fi
+          echo "✅ Tag $VERSION does not yet exist"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Build and test (and dry-run staging only)
+  # No environment gate — dry runs must not wait on reviewers.
+  # ---------------------------------------------------------------------------
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    needs: validate
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Pin to the dispatch commit so a later push to the release branch
+          # cannot change what gets built, published, or tagged after approval.
+          ref: ${{ github.sha }}
+
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -z "$SIGNING_KEY_ID" ]                && missing="$missing SIGNING_KEY_ID"
+          [ -z "$SIGNING_KEY" ]                   && missing="$missing SIGNING_KEY"
+          [ -z "$CENTRAL_PORTAL_TOKEN_USER" ]     && missing="$missing CENTRAL_PORTAL_TOKEN_USER"
+          [ -z "$CENTRAL_PORTAL_TOKEN_PASSWORD" ] && missing="$missing CENTRAL_PORTAL_TOKEN_PASSWORD"
+          if [ "$DRY_RUN" != "true" ]; then
+            [ -z "$GPG_PRIVATE_KEY" ]             && missing="$missing GPG_PRIVATE_KEY"
+            [ -z "$GPG_TAGGER_NAME" ]             && missing="$missing GPG_TAGGER_NAME"
+            [ -z "$GPG_TAGGER_EMAIL" ]            && missing="$missing GPG_TAGGER_EMAIL"
+            [ -z "$GPG_SIGNING_KEY_ID" ]          && missing="$missing GPG_SIGNING_KEY_ID"
+          fi
+          if [ -n "$missing" ]; then
+            echo "❌ Missing required secrets:$missing"
+            echo "   Set them in Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          # Empty is valid when the in-memory Maven signing key / tag key has no passphrase.
+          if [ -z "${SIGNING_PASSWORD:-}" ]; then
+            echo "⚠️ SIGNING_PASSWORD is empty — OK only if SIGNING_KEY has no passphrase"
+          fi
+          if [ "$DRY_RUN" != "true" ] && [ -z "${GPG_PASSPHRASE:-}" ]; then
+            echo "⚠️ GPG_PASSPHRASE is empty — OK only if the tagging key has no passphrase"
+          fi
+          echo "✅ All required secrets present"
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          CENTRAL_PORTAL_TOKEN_USER: ${{ secrets.CENTRAL_PORTAL_TOKEN_USER }}
+          CENTRAL_PORTAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_PORTAL_TOKEN_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GPG_TAGGER_NAME: ${{ secrets.GPG_TAGGER_NAME }}
+          GPG_TAGGER_EMAIL: ${{ secrets.GPG_TAGGER_EMAIL }}
+          GPG_SIGNING_KEY_ID: ${{ secrets.GPG_SIGNING_KEY_ID }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Verify Kotlin formatting (ktlint)
+        run: ./gradlew :${{ env.ADAPTER_MODULE }}:ktlintCheck
+
+      - name: Build adapter and run unit tests
+        run: ./gradlew :${{ env.ADAPTER_MODULE }}:build
+
+      - name: Upload release AAR as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-aar
+          path: ${{ env.AAR_PATH }}
+          retention-days: 7
+
+      - name: Publish to Maven Central (dry run — stage only, then close)
+        if: ${{ inputs.dry_run }}
+        env:
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          CENTRAL_PORTAL_TOKEN_USER: ${{ secrets.CENTRAL_PORTAL_TOKEN_USER }}
+          CENTRAL_PORTAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_PORTAL_TOKEN_PASSWORD }}
+        run: ./gradlew publishToSonatype closeSonatypeStagingRepository
+
+      - name: Dry run cleanup reminder
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "## ⚠️ Dry Run Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "A **closed** staging repository was created on [Maven Central](https://central.sonatype.com/)." >> "$GITHUB_STEP_SUMMARY"
+          echo "**You must DROP the staging repository before running a real release.**" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Publish to Maven Central (real release only)
+  # Environment approval happens HERE — before closeAndRelease makes the
+  # artifact immutable on Maven Central.
+  # ---------------------------------------------------------------------------
+  publish-maven:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: ${{ !inputs.dry_run }}
+    # Require a protected GitHub Environment with required reviewers configured
+    # in Settings → Environments → production-release before the first real publish.
+    environment: production-release
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Pin to the dispatch commit so a later push to the release branch
+          # cannot change what gets built, published, or tagged after approval.
+          ref: ${{ github.sha }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Publish to Maven Central
+        env:
+          SIGNING_KEY_ID: ${{ secrets.SIGNING_KEY_ID }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          CENTRAL_PORTAL_TOKEN_USER: ${{ secrets.CENTRAL_PORTAL_TOKEN_USER }}
+          CENTRAL_PORTAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_PORTAL_TOKEN_PASSWORD }}
+        run: ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Tag and GitHub Release
+  # Skipped on dry runs. Runs only after Maven publish has been approved + released.
+  # ---------------------------------------------------------------------------
+  tag-and-release:
+    name: Create tag and GitHub Release
+    runs-on: ubuntu-latest
+    needs: publish-maven
+    if: ${{ !inputs.dry_run }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Pin to the dispatch commit so a later push to the release branch
+          # cannot change what gets built, published, or tagged after approval.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Download release AAR
+        uses: actions/download-artifact@v7
+        with:
+          name: release-aar
+          path: artifacts/
+
+      - name: Install gnupg
+        run: |
+          set -euo pipefail
+          if ! command -v gpg &>/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y gnupg
+          fi
+
+      - name: Import GPG key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          GNUPGHOME=$(mktemp -d)
+          chmod 700 "$GNUPGHOME"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          echo "pinentry-mode loopback"  >> "$GNUPGHOME/gpg.conf"
+          echo "allow-loopback-pinentry" >> "$GNUPGHOME/gpg-agent.conf"
+          GNUPGHOME="$GNUPGHOME" gpgconf --kill gpg-agent
+          echo "$GPG_PRIVATE_KEY" | GNUPGHOME="$GNUPGHOME" gpg --batch \
+            --passphrase "${GPG_PASSPHRASE:-}" --import
+
+      - name: Create and push tag
+        env:
+          GPG_TAGGER_NAME: ${{ secrets.GPG_TAGGER_NAME }}
+          GPG_TAGGER_EMAIL: ${{ secrets.GPG_TAGGER_EMAIL }}
+          GPG_SIGNING_KEY_ID: ${{ secrets.GPG_SIGNING_KEY_ID }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # Write a gpg wrapper so every git-invoked gpg call passes the
+          # passphrase non-interactively, regardless of agent state.
+          GPG_WRAPPER=$(mktemp)
+          chmod +x "$GPG_WRAPPER"
+          printf '#!/bin/sh\nexec gpg --batch --yes --pinentry-mode loopback --passphrase "${GPG_PASSPHRASE:-}" "$@"\n' > "$GPG_WRAPPER"
+
+          git config user.name  "${GPG_TAGGER_NAME}"
+          git config user.email "${GPG_TAGGER_EMAIL}"
+          git config user.signingkey "${GPG_SIGNING_KEY_ID}"
+          git config gpg.program "$GPG_WRAPPER"
+          git config tag.gpgsign true
+          TAG="${VERSION}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "⚠️ Tag $TAG already exists — skipping tag creation"
+          else
+            git tag -s "$TAG" -m "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Extract CHANGELOG entry for this version
+        id: notes
+        run: |
+          set -euo pipefail
+          # Extract the block between "## [<version>] - <date>" and the next "## " heading.
+          awk "/^## \\[${VERSION}\\]/{found=1; next} found && /^## /{exit} found{print}" "$CHANGELOG_PATH" > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "No CHANGELOG entry found for $VERSION — using version header only"
+            echo "Release $VERSION" > /tmp/release-notes.md
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${VERSION}"
+          TITLE="${{ env.ADAPTER_DISPLAY_NAME }} ${VERSION}"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          MAVEN_URL="https://central.sonatype.com/artifact/${{ env.MAVEN_GROUP }}/${{ env.MAVEN_ARTIFACT }}"
+          {
+            echo "## ${{ env.ADAPTER_DISPLAY_NAME }} ${VERSION}"
+            echo ""
+            echo "### Maven coordinates"
+            echo '```gradle'
+            echo "implementation '${{ env.MAVEN_GROUP }}:${{ env.MAVEN_ARTIFACT }}:${VERSION}'"
+            echo '```'
+            echo ""
+            echo "### What's changed"
+            echo ""
+            cat /tmp/release-notes.md
+            echo ""
+            echo "### Links"
+            echo "- [Maven Central](${MAVEN_URL})"
+            echo "- [CHANGELOG](${REPO_URL}/blob/${TAG}/CHANGELOG.md)"
+          } > /tmp/gh-release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "⚠️ GitHub Release $TAG already exists — skipping"
+          else
+            gh release create "$TAG" \
+              artifacts/*.aar \
+              --title "$TITLE" \
+              --notes-file /tmp/gh-release-notes.md
+          fi
+
+      - name: Remove GPG key
+        if: always()
+        run: |
+          [ -n "${GNUPGHOME:-}" ] || exit 0
+          gpgconf --kill gpg-agent || true
+          rm -rf "$GNUPGHOME"
