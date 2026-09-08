@@ -3,7 +3,6 @@ package io.velocityads.gma
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.VersionInfo
@@ -40,8 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class VelocityAdsGmaAdapter : Adapter() {
     companion object {
         private const val TAG = "VelocityAdsGmaAdapter"
-        private const val INIT_POLL_INTERVAL_MS = 200L
-        private const val INIT_POLL_TIMEOUT_MS = 5_000L
+        private const val MEDIATION_NAME = "gma"
 
         /**
          * Shared across adapter instances (the Google Mobile Ads SDK creates one per ad
@@ -59,6 +57,30 @@ class VelocityAdsGmaAdapter : Adapter() {
 
         private val appKeyMismatchLogged = AtomicBoolean(false)
 
+        private val mediationInfoForwarded = AtomicBoolean(false)
+
+        /**
+         * Test seam: performs the Velocity SDK initialization call. Production wiring is
+         * [VelocityAds.initSDK]; tests substitute a fake so the coalesced init flow can be
+         * driven deterministically without network I/O.
+         */
+        internal var initSdkRunner: (Context, VelocityAdsInitRequest, VelocityAdsInitListener) -> Unit = VelocityAds::initSDK
+
+        /** Test seam: reports whether the Velocity SDK is initialized. Production wiring is [VelocityAds.isInitialized]. */
+        internal var isSdkInitialized: () -> Boolean = VelocityAds::isInitialized
+
+        /**
+         * Test-only: drains and unclaims the shared coalescer and clears all remembered state
+         * and seams so nothing leaks between test cases.
+         */
+        internal fun resetForTesting() {
+            if (initCoalescer.isClaimed) initCoalescer.complete(false)
+            storedAppKey = null
+            appKeyMismatchLogged.set(false)
+            initSdkRunner = VelocityAds::initSDK
+            isSdkInitialized = VelocityAds::isInitialized
+        }
+
         private fun rememberAppKey(appKey: String) {
             val previous = storedAppKey
             if (previous == null) {
@@ -74,18 +96,7 @@ class VelocityAdsGmaAdapter : Adapter() {
             }
         }
 
-        /**
-         * Mediation name reported to the Velocity SDK via [VelocityAdsMediationBridge].
-         * Owned by this adapter — the SDK accepts any lowercase canonical string.
-         */
-        private const val MEDIATION_NAME = "gma"
-
-        private val mediationInfoForwarded = AtomicBoolean(false)
-
-        /**
-         * Reports the mediation environment to the Velocity SDK. Safe to call from any
-         * adapter entry point; only the first call has an effect.
-         */
+        /** Reports the mediation environment to the Velocity SDK. Idempotent; safe from any entry point. */
         internal fun forwardMediationInfo() {
             if (!mediationInfoForwarded.compareAndSet(false, true)) return
             val gmaVersion =
@@ -127,11 +138,9 @@ class VelocityAdsGmaAdapter : Adapter() {
         callback: InitializationCompleteCallback,
         configurations: List<MediationConfiguration>,
     ) {
-        // Identify the mediation environment before SDK init so the very first
-        // request and event carry it.
         forwardMediationInfo()
 
-        if (VelocityAds.isInitialized()) {
+        if (isSdkInitialized()) {
             callback.onInitializationSucceeded()
             return
         }
@@ -149,7 +158,7 @@ class VelocityAdsGmaAdapter : Adapter() {
         rememberAppKey(appKey)
 
         runOnMainNow {
-            if (VelocityAds.isInitialized()) {
+            if (isSdkInitialized()) {
                 callback.onInitializationSucceeded()
                 return@runOnMainNow
             }
@@ -227,7 +236,7 @@ class VelocityAdsGmaAdapter : Adapter() {
         parameters: VelocityAdsServerParameters,
         onReady: (Boolean) -> Unit,
     ) {
-        if (VelocityAds.isInitialized()) {
+        if (isSdkInitialized()) {
             onReady(true)
             return
         }
@@ -243,7 +252,7 @@ class VelocityAdsGmaAdapter : Adapter() {
         }
 
         runOnMainNow {
-            if (VelocityAds.isInitialized()) {
+            if (isSdkInitialized()) {
                 onReady(true)
                 return@runOnMainNow
             }
@@ -259,9 +268,14 @@ class VelocityAdsGmaAdapter : Adapter() {
     // =========================================================================
 
     /**
-     * Performs the actual [VelocityAds.initSDK] call on behalf of the caller that won
-     * the coalescer claim, broadcasting the outcome to every parked handler when the
-     * SDK responds.
+     * Performs the actual Velocity SDK init call on behalf of the caller that won the
+     * coalescer claim, broadcasting the outcome to every parked handler when the SDK responds.
+     *
+     * If the SDK reports `SDK_INITIALIZATION_IN_PROGRESS` — the host app called `initSDK`
+     * moments before the adapter did — the claim stays held and [InFlightInitPoller] waits for
+     * that init to settle, so concurrent callers keep parking on the coalescer instead of
+     * failing. A host init that fails inside the poll window surfaces as a timeout; the next
+     * load re-attempts init, which the Velocity SDK permits from its FAILED state.
      */
     private fun startClaimedInit(
         context: Context,
@@ -276,9 +290,10 @@ class VelocityAdsGmaAdapter : Adapter() {
 
                 override fun onInitFailure(error: VelocityAdsError) {
                     if (error.code == VelocityAdsErrorCode.SDK_INITIALIZATION_IN_PROGRESS) {
-                        // Another caller (e.g. the host app) owns the in-flight init —
-                        // wait for its outcome instead of failing the parked loads.
-                        awaitInFlightInitialization(context, appKey) { initialized ->
+                        InFlightInitPoller.awaitInitialization(isInitialized = isSdkInitialized) { initialized ->
+                            if (!initialized) {
+                                Log.w(TAG, "Velocity Ads: timed out waiting for in-flight SDK initialization")
+                            }
                             initCoalescer.complete(initialized)
                         }
                         return
@@ -288,7 +303,7 @@ class VelocityAdsGmaAdapter : Adapter() {
                 }
             }
         try {
-            VelocityAds.initSDK(context, initRequest, initListener)
+            initSdkRunner(context, initRequest, initListener)
         } catch (t: Throwable) {
             // The Velocity SDK's public API contract is no-throw, but a synchronous throw
             // here would otherwise strand the claimed coalescer forever (parking every
@@ -296,67 +311,6 @@ class VelocityAdsGmaAdapter : Adapter() {
             Log.e(TAG, "Velocity Ads initSDK threw unexpectedly", t)
             initCoalescer.complete(false)
         }
-    }
-
-    /**
-     * Polls on the main thread until the host-owned in-flight initialization resolves, then
-     * either succeeds fast or re-attempts [VelocityAds.initSDK] itself — the Velocity SDK
-     * permits re-init from its FAILED state, so a failed host init is retried immediately
-     * instead of waiting out the full poll window. [onResult] is invoked exactly once.
-     */
-    private fun awaitInFlightInitialization(
-        context: Context,
-        appKey: String,
-        onResult: (Boolean) -> Unit,
-    ) {
-        val handler = Handler(Looper.getMainLooper())
-        val deadlineUptimeMs = SystemClock.uptimeMillis() + INIT_POLL_TIMEOUT_MS
-        var settled = false
-        val settle: (Boolean) -> Unit = { initialized ->
-            if (!settled) {
-                settled = true
-                onResult(initialized)
-            }
-        }
-        val attempt =
-            object : Runnable {
-                override fun run() {
-                    if (settled) return
-                    if (VelocityAds.isInitialized()) {
-                        settle(true)
-                        return
-                    }
-                    if (SystemClock.uptimeMillis() >= deadlineUptimeMs) {
-                        settle(false)
-                        return
-                    }
-                    val reattempt = this
-                    val retryListener =
-                        object : VelocityAdsInitListener {
-                            override fun onInitSuccess() {
-                                settle(true)
-                            }
-
-                            override fun onInitFailure(error: VelocityAdsError) {
-                                if (settled) return
-                                if (error.code == VelocityAdsErrorCode.SDK_INITIALIZATION_IN_PROGRESS) {
-                                    handler.postDelayed(reattempt, INIT_POLL_INTERVAL_MS)
-                                } else {
-                                    Log.w(TAG, "Velocity Ads re-init after host init failed [${error.code}]: ${error.message}")
-                                    settle(false)
-                                }
-                            }
-                        }
-                    val initRequest = VelocityAdsInitRequest.Builder(appKey).build()
-                    try {
-                        VelocityAds.initSDK(context, initRequest, retryListener)
-                    } catch (t: Throwable) {
-                        Log.e(TAG, "Velocity Ads initSDK threw unexpectedly during re-init", t)
-                        settle(false)
-                    }
-                }
-            }
-        handler.post(attempt)
     }
 
     /**

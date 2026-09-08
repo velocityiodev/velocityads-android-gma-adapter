@@ -1,6 +1,8 @@
 package io.velocityads.gma
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.mediation.MediationAdLoadCallback
@@ -18,6 +20,12 @@ import io.velocityads.sdk.models.VelocityBannerAdSize
  * Owns the [VelocityBannerAd], the [VelocityBannerAdView] that hosts the creative and the
  * [VelocityBannerAdHandler] for one load cycle. Main-thread-confined: both SDKs deliver every
  * callback on the main thread.
+ *
+ * The Google Mobile Ads SDK offers no teardown callback for banner ads: on refresh or when the
+ * hosting `AdView` is destroyed it simply removes the mediated view and drops this object. The
+ * Velocity creative is therefore released when its view leaves the window and is not re-attached
+ * within [DETACH_TEARDOWN_GRACE_MS] — long enough to survive reparenting and list recycling, short
+ * enough that a dropped banner does not keep its player alive.
  */
 internal class VelocityGmaBannerAd(
     private val ad: VelocityBannerAd,
@@ -25,6 +33,9 @@ internal class VelocityGmaBannerAd(
     loadCallback: MediationAdLoadCallback<MediationBannerAd, MediationBannerAdCallback>,
 ) : MediationBannerAd {
     companion object {
+        /** How long a detached banner view may stay off-window before its creative is released. */
+        internal const val DETACH_TEARDOWN_GRACE_MS = 2_000L
+
         /**
          * Validates the configuration and size, ensures the Velocity SDK is initialized, then
          * creates and loads the ad. Every failure path reports exactly once via [callback].
@@ -91,11 +102,39 @@ internal class VelocityGmaBannerAd(
         }
     }
 
-    private val handler = VelocityBannerAdHandler(this, loadCallback, onLoadFailed = ad::destroy)
+    private val handler = VelocityBannerAdHandler(this, loadCallback, onLoadFailed = ::release)
+
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val detachTeardown =
+        Runnable {
+            if (!adView.isAttachedToWindow) release()
+        }
+
+    private val attachStateListener =
+        object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {
+                mainHandler.removeCallbacks(detachTeardown)
+            }
+
+            override fun onViewDetachedFromWindow(v: View) {
+                mainHandler.postDelayed(detachTeardown, DETACH_TEARDOWN_GRACE_MS)
+            }
+        }
+
+    init {
+        adView.addOnAttachStateChangeListener(attachStateListener)
+    }
 
     fun load() {
         ad.load(adView, handler)
     }
 
     override fun getView(): View = adView
+
+    private fun release() {
+        mainHandler.removeCallbacks(detachTeardown)
+        adView.removeOnAttachStateChangeListener(attachStateListener)
+        ad.destroy()
+    }
 }

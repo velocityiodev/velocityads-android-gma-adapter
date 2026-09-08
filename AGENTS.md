@@ -60,7 +60,8 @@ velocityads-android-gma-adapter/
 │ ├── VelocityBannerAdHandler.kt # Translates Velocity callbacks → GMA banner callbacks
 │ ├── VelocityAdsErrorMapper.kt # Builds AdError values (adapter + SDK domains)
 │ ├── VersionInfoParser.kt # Adapter / SDK version strings → VersionInfo
-│ └── InitCoalescer.kt # Coalesces concurrent init attempts
+│ ├── InitCoalescer.kt # Coalesces concurrent init attempts
+│ └── InFlightInitPoller.kt # Polls for in-progress SDK init
 ├── build.gradle # Root build: Nexus publish plugin + ktlint plugin
 ├── gradle.properties # VERSION_NAME, GROUP, ARTIFACT_ID
 └── .github/workflows/

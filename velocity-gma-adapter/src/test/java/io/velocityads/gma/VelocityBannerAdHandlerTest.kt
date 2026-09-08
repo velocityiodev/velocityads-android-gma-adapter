@@ -13,13 +13,18 @@ import kotlin.test.assertNull
 import kotlin.test.assertSame
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
 import org.mockito.ArgumentCaptor
 import org.mockito.Mockito.any
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [28])
 class VelocityBannerAdHandlerTest {
     private lateinit var velocityAd: VelocityBannerAd
     private lateinit var mediationAd: MediationBannerAd

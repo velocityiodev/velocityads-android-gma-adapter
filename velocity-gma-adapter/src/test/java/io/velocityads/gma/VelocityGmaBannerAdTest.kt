@@ -1,6 +1,9 @@
 package io.velocityads.gma
 
 import android.app.Activity
+import android.os.Looper
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.mediation.MediationAdLoadCallback
@@ -11,19 +14,25 @@ import io.velocityads.sdk.models.VelocityAdsError
 import io.velocityads.sdk.models.VelocityAdsErrorCode
 import io.velocityads.sdk.models.VelocityBannerAd
 import io.velocityads.sdk.models.VelocityBannerAdSize
+import java.time.Duration
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentCaptor
 import org.mockito.Mockito.any
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
+import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -38,7 +47,7 @@ class VelocityGmaBannerAdTest {
 
     @Before
     fun setUp() {
-        activity = Robolectric.buildActivity(Activity::class.java).get()
+        activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         velocityAd = mock(VelocityBannerAd::class.java)
         adView = VelocityBannerAdView(activity)
         @Suppress("UNCHECKED_CAST")
@@ -140,5 +149,59 @@ class VelocityGmaBannerAdTest {
 
         verify(loadCallback).onFailure(any(AdError::class.java))
         verify(velocityAd).destroy()
+    }
+
+    // ========== teardown ==========
+
+    private fun attachToWindow() {
+        activity.setContentView(FrameLayout(activity).apply { addView(adView) })
+        assertTrue(adView.isAttachedToWindow)
+    }
+
+    private fun detachFromWindow() {
+        (adView.parent as ViewGroup).removeView(adView)
+        assertFalse(adView.isAttachedToWindow)
+    }
+
+    private fun advanceMainLooper(ms: Long) {
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+    }
+
+    @Test
+    fun `a loaded banner that leaves the window is released after the grace period`() {
+        attachToWindow()
+        loadAndCaptureListener().onAdLoaded(velocityAd)
+
+        detachFromWindow()
+        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS - 1)
+        verify(velocityAd, never()).destroy()
+
+        advanceMainLooper(1)
+        verify(velocityAd).destroy()
+    }
+
+    @Test
+    fun `a banner re-attached within the grace period is kept alive`() {
+        attachToWindow()
+        loadAndCaptureListener().onAdLoaded(velocityAd)
+
+        detachFromWindow()
+        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS / 2)
+        attachToWindow()
+        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS)
+
+        verify(velocityAd, never()).destroy()
+    }
+
+    @Test
+    fun `the creative is released at most once`() {
+        attachToWindow()
+        val listener = loadAndCaptureListener()
+
+        listener.onAdFailedToLoad(velocityAd, VelocityAdsError(VelocityAdsErrorCode.NO_FILL, "no fill"))
+        detachFromWindow()
+        advanceMainLooper(VelocityGmaBannerAd.DETACH_TEARDOWN_GRACE_MS)
+
+        verify(velocityAd, times(1)).destroy()
     }
 }

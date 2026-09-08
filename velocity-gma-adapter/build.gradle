@@ -75,7 +75,7 @@ afterEvaluate {
                     licenses {
                         license {
                             name = 'The Apache License, Version 2.0'
-                            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                            url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
                         }
                     }
                     developers {
@@ -90,16 +90,6 @@ afterEvaluate {
                         developerConnection = 'scm:git:ssh://github.com/velocityiodev/velocityads-android-gma-adapter.git'
                         url = 'https://github.com/velocityiodev/velocityads-android-gma-adapter'
                     }
-                }
-            }
-        }
-        repositories {
-            maven {
-                name = "sonatype"
-                url = "https://ossrh-staging-api.central.sonatype.com/service/local/"
-                credentials {
-                    username = System.getenv("CENTRAL_PORTAL_TOKEN_USER")
-                    password = System.getenv("CENTRAL_PORTAL_TOKEN_PASSWORD")
                 }
             }
         }

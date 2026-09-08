@@ -1,5 +1,6 @@
 package io.velocityads.gma
 
+import android.util.Log
 import com.google.android.gms.ads.mediation.MediationAdLoadCallback
 import com.google.android.gms.ads.mediation.MediationBannerAd
 import com.google.android.gms.ads.mediation.MediationBannerAdCallback
@@ -52,11 +53,18 @@ internal class VelocityBannerAdHandler(
         adCallback?.reportAdClicked()
     }
 
+    /**
+     * The Google Mobile Ads banner contract has no post-load failure hook — the SDK already
+     * holds the view — so the failure is only logged for diagnosis of a blank slot.
+     */
     override fun onAdFailedToShow(
         ad: VelocityBannerAd,
         error: VelocityAdsError,
     ) {
-        // The banner contract has no post-load failure hook; the Google Mobile Ads SDK
-        // already holds the view. Nothing further to report.
+        Log.w(TAG, "Velocity Ads banner failed to render [${error.code}]: ${error.message}")
+    }
+
+    private companion object {
+        const val TAG = "VelocityAdsGmaAdapter"
     }
 }
