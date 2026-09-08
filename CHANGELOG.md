@@ -8,4 +8,3 @@
 - Interstitial, rewarded and banner ad formats, including MREC, leaderboard and adaptive banner sizes.
 - Automatic Velocity SDK initialization from the custom event parameter, with lazy initialization on first load when no app key is configured at startup.
 - Velocity SDK error codes and messages preserved on every reported `AdError`.
-- Banner creatives are released automatically once the Google Mobile Ads SDK removes the banner view (refresh or `AdView.destroy()`).
