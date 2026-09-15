@@ -41,6 +41,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          # The action's default is "tools platform-tools"; the legacy "tools"
+          # package no longer exists in the SDK repository and sdkmanager fails
+          # the whole step on it.
+          packages: platform-tools
 
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
