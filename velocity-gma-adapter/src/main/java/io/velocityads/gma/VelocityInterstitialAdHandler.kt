@@ -16,8 +16,8 @@ import io.velocityads.sdk.models.VelocityFullscreenAd
  * main thread.
  *
  * @param mediationAd The ad object handed to the Google Mobile Ads SDK on success.
- * @param onAdFinished Invoked once the creative is no longer usable (load failed or the ad
- *                     was dismissed) so the owner can release it.
+ * @param onAdFinished Invoked once the creative is no longer usable (load failed, show failed,
+ *                     or the ad was dismissed) so the owner can release it.
  */
 internal class VelocityInterstitialAdHandler(
     private val mediationAd: MediationInterstitialAd,
@@ -53,6 +53,9 @@ internal class VelocityInterstitialAdHandler(
         error: VelocityAdsError,
     ) {
         adCallback?.onAdFailedToShow(VelocityAdsErrorMapper.toAdError(error))
+        // A failed show is terminal — no dismiss will follow — so release the creative here
+        // to avoid leaking a loaded Velocity ad into the next request for this ad unit.
+        onAdFinished()
     }
 
     override fun onAdClicked(ad: VelocityFullscreenAd) {

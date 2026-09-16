@@ -56,6 +56,9 @@ internal class VelocityGmaInterstitialAd(
     override fun showAd(context: Context) {
         if (!ad.isReady) {
             handler.adCallback?.onAdFailedToShow(VelocityAdsErrorMapper.adNotReady())
+            // Show can never succeed for this creative — release it so a stale loaded ad
+            // does not block the next request for this ad unit.
+            ad.destroy()
             return
         }
         ad.show(context)
