@@ -79,7 +79,7 @@ Add the custom event to the mediation group / yield group of each ad unit you wa
 The adapter initializes the Velocity SDK automatically. You do **not** need to call `VelocityAds.initSDK()` yourself.
 
 - When the Google Mobile Ads SDK initializes its adapters (`MobileAds.initialize()`), the adapter initializes the Velocity SDK using the first `appKey` found across your custom event mappings.
-- If no mapping carries an `appKey`, the adapter reports ready immediately (so it never blocks the Google Mobile Ads SDK) but has no key to initialize with.
+- If no mapping carries an `appKey`, the adapter reports ready immediately (so it never blocks the Google Mediation) but has no key to initialize with.
 - If the Velocity SDK is already initialized by your app, the adapter detects this and skips initialization.
 
 Concurrent initialization attempts are coalesced; the Velocity SDK is initialized at most once per process.
