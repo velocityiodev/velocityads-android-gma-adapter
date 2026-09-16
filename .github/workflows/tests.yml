@@ -18,10 +18,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# NOTE: This workflow depends on `io.velocity:ads-sdk` being available on
-# Maven Central. CI will fail until the matching SDK version ships. Gate
-# merges manually (or via draft PR) until the SDK is released.
-
 jobs:
   test:
     name: Format · Test
