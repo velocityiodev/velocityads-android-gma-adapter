@@ -66,9 +66,7 @@ The **Parameter** field carries the Velocity configuration for the mapping as a 
 ```
 
 - `adUnitId` (required) — the Velocity ad unit ID for this placement.
-- `appKey` (recommended) — your Velocity app key. Include it on every mapping so the adapter can initialize the Velocity SDK on its own. Use **one Velocity app key per application process** across all mappings.
-
-If your app already initializes the Velocity SDK directly, `appKey` may be omitted and the parameter can be just the bare ad unit ID string.
+- `appKey` (required) — your Velocity app key. Include it on every mapping so the adapter can initialize the Velocity SDK on its own. Use **one Velocity app key per application process** across all mappings.
 
 ### Step 3 – Add Velocity Ads to your ad units
 
@@ -81,7 +79,7 @@ Add the custom event to the mediation group / yield group of each ad unit you wa
 The adapter initializes the Velocity SDK automatically. You do **not** need to call `VelocityAds.initSDK()` yourself.
 
 - When the Google Mobile Ads SDK initializes its adapters (`MobileAds.initialize()`), the adapter initializes the Velocity SDK using the first `appKey` found across your custom event mappings.
-- If no mapping carries an `appKey`, the adapter reports ready immediately and initializes the Velocity SDK lazily on the first ad request that does carry one — or relies on your app having initialized the SDK directly.
+- If no mapping carries an `appKey`, the adapter reports ready immediately (so it never blocks the Google Mobile Ads SDK) but has no key to initialize with.
 - If the Velocity SDK is already initialized by your app, the adapter detects this and skips initialization.
 
 Concurrent initialization attempts are coalesced; the Velocity SDK is initialized at most once per process.

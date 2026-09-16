@@ -87,7 +87,7 @@ Do not rename this class — it is a hard-coded string in every publisher's AdMo
 
 The Google Mobile Ads SDK delivers one opaque string per custom event mapping. `VelocityAdsServerParameters` accepts:
 
-- a JSON object `{"appKey":"…","adUnitId":"…"}` (`appKey` optional), or
+- a JSON object `{"appKey":"…","adUnitId":"…"}` (`appKey` is parser-optional, but required in practice for Google-mediated init — see `README.md`), or
 - a bare string, treated as the ad unit ID.
 
 Do not add new keys without updating `README.md`; the parameter is publisher-facing configuration.
