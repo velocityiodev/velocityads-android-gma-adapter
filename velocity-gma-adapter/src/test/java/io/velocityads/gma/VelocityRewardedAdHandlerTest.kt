@@ -82,6 +82,7 @@ class VelocityRewardedAdHandlerTest {
         verify(adCallback).onAdClosed()
     }
 
+    @Suppress("DEPRECATION") // Intentionally references the deprecated onUserEarnedReward(RewardItem) to assert we never call it.
     @Test
     fun `onUserRewarded delivers the reward via the parameterless overload before close`() {
         handler.onAdLoaded(velocityAd)

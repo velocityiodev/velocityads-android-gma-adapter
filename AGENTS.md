@@ -39,7 +39,7 @@ This library is the official Google Mobile Ads **custom event adapter** that bri
 - **Published artifact**: `io.velocity:gma-mediation` on Maven Central
 - **Version scheme**: 4-segment (`<sdkMajor>.<sdkMinor>.<sdkPatch>.<adapterBuild>`) — the 4th segment increments for adapter-only fixes against the same SDK version
 - **Minimum Android SDK**: API 24
-- **Supported Google Mobile Ads SDK**: 24.x
+- **Supported Google Mobile Ads SDK**: 25.x
 
 ---
 
