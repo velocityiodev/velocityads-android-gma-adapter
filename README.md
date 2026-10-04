@@ -20,7 +20,7 @@ This library is the official Google Mobile Ads **custom event adapter** for the 
 |---|---|
 | Android | API 24 (Android 7.0) |
 | Google Mobile Ads SDK | 25.x |
-| Velocity Ads SDK | 0.10.1 |
+| Velocity Ads SDK | 0.11.0 |
 | Kotlin | 2.0+ |
 
 ---
@@ -36,10 +36,10 @@ dependencies {
     implementation 'com.google.android.gms:play-services-ads:25.4.0'
 
     // Velocity Ads SDK
-    implementation 'io.velocity:ads-sdk:0.10.1'
+    implementation 'io.velocity:ads-sdk:0.11.0'
 
     // Velocity Ads GMA Adapter
-    implementation 'io.velocity:gma-mediation:0.10.1.0'
+    implementation 'io.velocity:gma-mediation:0.11.0.0'
 }
 ```
 
@@ -124,6 +124,7 @@ Load and show failures are surfaced as standard `AdError` values:
 
 | Adapter version | Velocity SDK version | Notes |
 |---|---|---|
+| 0.11.0.0 | 0.11.0 | Wraps Velocity Ads SDK 0.11.0 |
 | 0.10.1.0 | 0.10.1 | Initial release |
 
 ---
