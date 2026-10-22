@@ -40,7 +40,7 @@ jobs:
   # ---------------------------------------------------------------------------
   validate:
     name: Validate release readiness
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-staging
     timeout-minutes: 5
     env:
       VERSION: ${{ inputs.version }}
@@ -116,7 +116,7 @@ jobs:
   # ---------------------------------------------------------------------------
   build-and-test:
     name: Build and test
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-staging
     needs: validate
     timeout-minutes: 30
     permissions:
@@ -228,7 +228,7 @@ jobs:
   # ---------------------------------------------------------------------------
   publish-maven:
     name: Publish to Maven Central
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-production
     needs: build-and-test
     if: ${{ !inputs.dry_run }}
     # Require a protected GitHub Environment with required reviewers configured
@@ -281,7 +281,7 @@ jobs:
   # ---------------------------------------------------------------------------
   tag-and-release:
     name: Create tag and GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: arc-runner-set-production
     needs: publish-maven
     if: ${{ !inputs.dry_run }}
     timeout-minutes: 10
@@ -304,6 +304,19 @@ jobs:
         with:
           name: release-aar
           path: artifacts/
+
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          if ! command -v gh &>/dev/null; then
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+              | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+              | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
 
       - name: Install gnupg
         run: |
