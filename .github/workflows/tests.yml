@@ -21,7 +21,7 @@ concurrency:
 jobs:
   test:
     name: Format · Test
-    runs-on: arc-runner-set-staging
+    runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
