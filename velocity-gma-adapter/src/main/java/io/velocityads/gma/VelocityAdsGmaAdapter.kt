@@ -148,11 +148,11 @@ class VelocityAdsGmaAdapter : Adapter() {
          * An unspecified value is deliberately ignored so an unknown GMA value does not
          * overwrite a publisher-provided Velocity setting.
          */
-        internal fun forwardPrivacySettings(treatment: AgeRestrictedTreatment) {
+        internal fun forwardPrivacySettings(treatment: AgeRestrictedTreatment?) {
             when (treatment) {
                 AgeRestrictedTreatment.CHILD -> childDirectedRunner(true)
                 AgeRestrictedTreatment.TEEN -> childDirectedRunner(false)
-                AgeRestrictedTreatment.UNSPECIFIED -> Unit
+                AgeRestrictedTreatment.UNSPECIFIED, null -> Unit
             }
         }
     }

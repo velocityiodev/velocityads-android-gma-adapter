@@ -178,6 +178,7 @@ class VelocityAdsGmaAdapterTest {
         VelocityAdsGmaAdapter.forwardPrivacySettings(AgeRestrictedTreatment.CHILD)
         VelocityAdsGmaAdapter.forwardPrivacySettings(AgeRestrictedTreatment.TEEN)
         VelocityAdsGmaAdapter.forwardPrivacySettings(AgeRestrictedTreatment.UNSPECIFIED)
+        VelocityAdsGmaAdapter.forwardPrivacySettings(null)
 
         assertEquals(listOf("child:true", "child:false"), privacyEvents)
     }

@@ -19,7 +19,7 @@ This library is the official Google Mobile Ads **custom event adapter** for the 
 | Requirement | Minimum version |
 |---|---|
 | Android | API 24 (Android 7.0) |
-| Google Mobile Ads SDK | 25.x |
+| Google Mobile Ads SDK | 25.3.0+ |
 | Velocity Ads SDK | 0.13.0 |
 | Kotlin | 2.0+ |
 
@@ -32,7 +32,7 @@ Add the adapter to your app's `build.gradle`:
 ```groovy
 dependencies {
     // Google Mobile Ads SDK (already present in most apps) — 25.4.0 is the version this
-    // adapter is built and tested against; any 25.x release is compatible.
+    // adapter is built and tested against; 25.3.0+ is required for age treatment.
     implementation 'com.google.android.gms:play-services-ads:25.4.0'
 
     // Velocity Ads SDK
