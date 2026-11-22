@@ -7,6 +7,9 @@ import android.os.Looper
 import com.google.android.gms.ads.AdError
 import com.google.android.gms.ads.AdFormat
 import com.google.android.gms.ads.AdSize
+import com.google.android.gms.ads.AgeRestrictedTreatment
+import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import com.google.android.gms.ads.mediation.InitializationCompleteCallback
 import com.google.android.gms.ads.mediation.MediationAdConfiguration
 import com.google.android.gms.ads.mediation.MediationAdLoadCallback
@@ -53,6 +56,7 @@ class VelocityAdsGmaAdapterTest {
 
     /** The listeners handed to the fake init runner, in call order. */
     private val initListeners = mutableListOf<VelocityAdsInitListener>()
+    private val privacyEvents = mutableListOf<String>()
     private var sdkInitialized = false
 
     @Before
@@ -61,11 +65,17 @@ class VelocityAdsGmaAdapterTest {
         adapter = VelocityAdsGmaAdapter()
         VelocityAdsGmaAdapter.initSdkRunner = { _, _, listener -> initListeners += listener }
         VelocityAdsGmaAdapter.isSdkInitialized = { sdkInitialized }
+        VelocityAdsGmaAdapter.childDirectedRunner = { value -> privacyEvents += "child:$value" }
     }
 
     @After
     fun tearDown() {
         VelocityAdsGmaAdapter.resetForTesting()
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setAgeRestrictedTreatment(AgeRestrictedTreatment.UNSPECIFIED)
+                .build(),
+        )
     }
 
     private fun sharedCoalescer(): InitCoalescer<Boolean>? =
@@ -107,7 +117,6 @@ class VelocityAdsGmaAdapterTest {
             false,
             null,
             MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
-            MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
             null,
             "",
         )
@@ -120,7 +129,6 @@ class VelocityAdsGmaAdapterTest {
             Bundle(),
             false,
             null,
-            MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
             MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
             null,
             "",
@@ -137,7 +145,6 @@ class VelocityAdsGmaAdapterTest {
             Bundle(),
             false,
             null,
-            MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
             MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
             "",
             adSize,
@@ -162,6 +169,92 @@ class VelocityAdsGmaAdapterTest {
     private companion object {
         const val UNIT_ONLY = """{"adUnitId":"unit-1"}"""
         const val WITH_APP_KEY = """{"appKey":"app-1","adUnitId":"unit-1"}"""
+    }
+
+    // ========== COPPA forwarding ==========
+
+    @Test
+    fun `child directed treatment forwards true and false but ignores unspecified`() {
+        VelocityAdsGmaAdapter.forwardPrivacySettings(AgeRestrictedTreatment.CHILD)
+        VelocityAdsGmaAdapter.forwardPrivacySettings(AgeRestrictedTreatment.TEEN)
+        VelocityAdsGmaAdapter.forwardPrivacySettings(AgeRestrictedTreatment.UNSPECIFIED)
+
+        assertEquals(listOf("child:true", "child:false"), privacyEvents)
+    }
+
+    @Test
+    fun `initialize forwards COPPA before starting SDK initialization`() {
+        VelocityAdsGmaAdapter.initSdkRunner = { _, _, listener ->
+            privacyEvents += "init"
+            initListeners += listener
+        }
+        val callback = mock(InitializationCompleteCallback::class.java)
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setAgeRestrictedTreatment(AgeRestrictedTreatment.CHILD)
+                .build(),
+        )
+
+        adapter.initialize(context, callback, listOf(initConfiguration(WITH_APP_KEY)))
+
+        assertEquals(listOf("child:true", "init"), privacyEvents)
+    }
+
+    @Test
+    fun `each supported format forwards COPPA before starting its load initialization`() {
+        VelocityAdsGmaAdapter.initSdkRunner = { _, _, listener ->
+            privacyEvents += "init"
+            initListeners += listener
+        }
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setAgeRestrictedTreatment(AgeRestrictedTreatment.TEEN)
+                .build(),
+        )
+
+        adapter.loadInterstitialAd(
+            interstitialConfiguration(WITH_APP_KEY),
+            interstitialCallback(),
+        )
+        assertEquals(listOf("child:false", "init"), privacyEvents)
+
+        privacyEvents.clear()
+        initListeners.clear()
+        VelocityAdsGmaAdapter.resetForTesting()
+        VelocityAdsGmaAdapter.childDirectedRunner = { value -> privacyEvents += "child:$value" }
+        VelocityAdsGmaAdapter.initSdkRunner = { _, _, listener ->
+            privacyEvents += "init"
+            initListeners += listener
+        }
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setAgeRestrictedTreatment(AgeRestrictedTreatment.TEEN)
+                .build(),
+        )
+        adapter.loadRewardedAd(
+            rewardedConfiguration(WITH_APP_KEY),
+            rewardedCallback(),
+        )
+        assertEquals(listOf("child:false", "init"), privacyEvents)
+
+        privacyEvents.clear()
+        initListeners.clear()
+        VelocityAdsGmaAdapter.resetForTesting()
+        VelocityAdsGmaAdapter.childDirectedRunner = { value -> privacyEvents += "child:$value" }
+        VelocityAdsGmaAdapter.initSdkRunner = { _, _, listener ->
+            privacyEvents += "init"
+            initListeners += listener
+        }
+        MobileAds.setRequestConfiguration(
+            RequestConfiguration.Builder()
+                .setAgeRestrictedTreatment(AgeRestrictedTreatment.TEEN)
+                .build(),
+        )
+        adapter.loadBannerAd(
+            bannerConfiguration(WITH_APP_KEY),
+            bannerCallback(),
+        )
+        assertEquals(listOf("child:false", "init"), privacyEvents)
     }
 
     // ========== initialize() ==========

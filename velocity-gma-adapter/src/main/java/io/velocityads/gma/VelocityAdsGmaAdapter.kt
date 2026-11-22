@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.google.android.gms.ads.AgeRestrictedTreatment
 import com.google.android.gms.ads.MobileAds
 import com.google.android.gms.ads.VersionInfo
 import com.google.android.gms.ads.mediation.Adapter
@@ -70,6 +71,9 @@ class VelocityAdsGmaAdapter : Adapter() {
         /** Test seam: reports whether the Velocity SDK is initialized. Production wiring is [VelocityAds.isInitialized]. */
         internal var isSdkInitialized: () -> Boolean = VelocityAds::isInitialized
 
+        /** Test seam for forwarding Google's COPPA signal to the Velocity SDK. */
+        internal var childDirectedRunner: (Boolean) -> Unit = VelocityAds::setIsChildDirected
+
         /**
          * Test-only: drains and unclaims the shared coalescer and clears all remembered state
          * and seams so nothing leaks between test cases.
@@ -80,6 +84,7 @@ class VelocityAdsGmaAdapter : Adapter() {
             appKeyMismatchLogged = false
             initSdkRunner = VelocityAds::initSDK
             isSdkInitialized = VelocityAds::isInitialized
+            childDirectedRunner = VelocityAds::setIsChildDirected
         }
 
         /**
@@ -134,6 +139,22 @@ class VelocityAdsGmaAdapter : Adapter() {
                 .map { it.serverParameters.getString(MediationConfiguration.CUSTOM_EVENT_SERVER_PARAMETER_FIELD) }
                 .map { VelocityAdsServerParameters.parse(it).appKey }
                 .firstOrNull { !it.isNullOrBlank() }
+
+        /**
+         * Forwards GMA privacy signals to the Velocity SDK.
+         *
+         * GMA's child-directed signal is the only privacy signal that maps to a Velocity
+         * privacy API here. GDPR/CCPA remain GMA/CMP-managed, as documented for this adapter.
+         * An unspecified value is deliberately ignored so an unknown GMA value does not
+         * overwrite a publisher-provided Velocity setting.
+         */
+        internal fun forwardPrivacySettings(treatment: AgeRestrictedTreatment) {
+            when (treatment) {
+                AgeRestrictedTreatment.CHILD -> childDirectedRunner(true)
+                AgeRestrictedTreatment.TEEN -> childDirectedRunner(false)
+                AgeRestrictedTreatment.UNSPECIFIED -> Unit
+            }
+        }
     }
 
     // =========================================================================
@@ -146,6 +167,7 @@ class VelocityAdsGmaAdapter : Adapter() {
         configurations: List<MediationConfiguration>,
     ) {
         forwardMediationInfo()
+        forwardPrivacySettings(MobileAds.getRequestConfiguration().ageRestrictedTreatment)
 
         if (isSdkInitialized()) {
             callback.onInitializationSucceeded()
@@ -191,7 +213,10 @@ class VelocityAdsGmaAdapter : Adapter() {
         callback: MediationAdLoadCallback<MediationInterstitialAd, MediationInterstitialAdCallback>,
     ) {
         forwardMediationInfo()
-        runOnMainNow { VelocityGmaInterstitialAd.load(loadContext, configuration, callback) }
+        runOnMainNow {
+            forwardPrivacySettings(MobileAds.getRequestConfiguration().ageRestrictedTreatment)
+            VelocityGmaInterstitialAd.load(loadContext, configuration, callback)
+        }
     }
 
     override fun loadRewardedAd(
@@ -199,7 +224,10 @@ class VelocityAdsGmaAdapter : Adapter() {
         callback: MediationAdLoadCallback<MediationRewardedAd, MediationRewardedAdCallback>,
     ) {
         forwardMediationInfo()
-        runOnMainNow { VelocityGmaRewardedAd.load(loadContext, configuration, callback) }
+        runOnMainNow {
+            forwardPrivacySettings(MobileAds.getRequestConfiguration().ageRestrictedTreatment)
+            VelocityGmaRewardedAd.load(loadContext, configuration, callback)
+        }
     }
 
     override fun loadBannerAd(
@@ -207,7 +235,10 @@ class VelocityAdsGmaAdapter : Adapter() {
         callback: MediationAdLoadCallback<MediationBannerAd, MediationBannerAdCallback>,
     ) {
         forwardMediationInfo()
-        runOnMainNow { VelocityGmaBannerAd.load(loadContext, configuration, callback) }
+        runOnMainNow {
+            forwardPrivacySettings(MobileAds.getRequestConfiguration().ageRestrictedTreatment)
+            VelocityGmaBannerAd.load(loadContext, configuration, callback)
+        }
     }
 
     // =========================================================================
