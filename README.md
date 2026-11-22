@@ -19,8 +19,8 @@ This library is the official Google Mobile Ads **custom event adapter** for the 
 | Requirement | Minimum version |
 |---|---|
 | Android | API 24 (Android 7.0) |
-| Google Mobile Ads SDK | 25.x |
-| Velocity Ads SDK | 0.12.0 |
+| Google Mobile Ads SDK | 25.3.0+ |
+| Velocity Ads SDK | 0.13.0 |
 | Kotlin | 2.0+ |
 
 ---
@@ -32,14 +32,14 @@ Add the adapter to your app's `build.gradle`:
 ```groovy
 dependencies {
     // Google Mobile Ads SDK (already present in most apps) — 25.4.0 is the version this
-    // adapter is built and tested against; any 25.x release is compatible.
+    // adapter is built and tested against; 25.3.0+ is required for age treatment.
     implementation 'com.google.android.gms:play-services-ads:25.4.0'
 
     // Velocity Ads SDK
-    implementation 'io.velocity:ads-sdk:0.12.0'
+    implementation 'io.velocity:ads-sdk:0.13.0'
 
     // Velocity Ads GMA Adapter
-    implementation 'io.velocity:gma-mediation:0.12.0.0'
+    implementation 'io.velocity:gma-mediation:0.13.0.0'
 }
 ```
 
@@ -95,6 +95,11 @@ Concurrent initialization attempts are coalesced; the Velocity SDK is initialize
 ```kotlin
 VelocityAds.setDoNotSell(true) // user opted out of sale of personal data
 ```
+
+**COPPA / child-directed treatment** — The adapter maps the Google Mobile Ads
+`ageRestrictedTreatment` signal to the Velocity SDK for initialization and each ad load.
+`CHILD` is forwarded as `true`, `TEEN` as `false`, and `UNSPECIFIED` is not forwarded.
+Under-age-of-consent signals are not mapped.
 
 ---
 
