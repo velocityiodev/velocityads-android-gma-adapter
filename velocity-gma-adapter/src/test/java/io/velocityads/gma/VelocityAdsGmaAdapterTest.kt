@@ -117,7 +117,8 @@ class VelocityAdsGmaAdapterTest {
             false,
             null,
             MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
-            null,
+            RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
+            RequestConfiguration.MAX_AD_CONTENT_RATING_UNSPECIFIED,
             "",
         )
 
@@ -130,7 +131,8 @@ class VelocityAdsGmaAdapterTest {
             false,
             null,
             MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
-            null,
+            RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
+            RequestConfiguration.MAX_AD_CONTENT_RATING_UNSPECIFIED,
             "",
         )
 
@@ -146,7 +148,8 @@ class VelocityAdsGmaAdapterTest {
             false,
             null,
             MediationAdConfiguration.TAG_FOR_CHILD_DIRECTED_TREATMENT_UNSPECIFIED,
-            "",
+            RequestConfiguration.TAG_FOR_UNDER_AGE_OF_CONSENT_UNSPECIFIED,
+            RequestConfiguration.MAX_AD_CONTENT_RATING_UNSPECIFIED,
             adSize,
             "",
         )
